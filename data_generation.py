@@ -1,4 +1,7 @@
 import numpy as np
+import torch
+from multiprocessing import Pool
+from shapely import Point, Polygon
 
 from ratinabox.Environment import Environment
 from ratinabox.Agent import Agent
@@ -35,7 +38,7 @@ def random_angle_steps(steps: int, irregularity: float):
     return angles
 
 
-def generate_random_polygon(avg_radius=1, irregularity=0.5, spikiness=0.5, max_num_vertices=10):
+def generate_random_polygon(avg_radius=1, irregularity=0.5, spikiness=0.5, max_num_vertices=8):
     """Creates the polygon by sampling points on a circle around the center.
     Angular spacing between sequential points, and radial distance of each
     point from the centre are varied randomly.
@@ -83,8 +86,17 @@ def generate_random_polygon(avg_radius=1, irregularity=0.5, spikiness=0.5, max_n
     return points
 
 
-def generate_random_polygon_env(**params):
+def generate_random_polygon_env(n_env=1, add_walls=True, add_holes=True, **params):
     """Generates random polygon environments.
+
+    Parameters
+    ----------
+    n_env: int
+        Number of environments to be generated.
+    add_walls: bool
+        Whether to add walls to the environment.
+    add_holes: bool
+        Whether to add holes to the environment.
 
     Notes
     -----
@@ -94,51 +106,65 @@ def generate_random_polygon_env(**params):
     -------
     List of environments.
     """
-    # Generate random polygon
-    random_polygon = generate_random_polygon(**params)
+    envs = []
+    for i in range(n_env):
 
-    # Create environment
-    env = Environment({"boundary": random_polygon})
+        # Generate random polygon
+        random_polygon = generate_random_polygon(**params)
+
+        holes = []
+        if add_holes:
+            holes, _ = generate_random_holes(random_polygon, n_holes=np.random.randint(0, 2))
+
+        # Create environment
+        env = Environment({'boundary': random_polygon, 'holes': holes})
+
+        # Add walls
+        if add_walls:
+            env = add_random_walls(env, np.random.randint(0, 2))
+
+        envs.append(env)
+
+    if n_env == 1:
+        return envs[0]
+
+    return envs
+
+
+def add_random_walls_new(env, n_walls, min_gap=0.1, min_len=0.2):
+    """Adds n_walls random walls to the environment.
+    """
+    added_walls = 0
+    while added_walls < n_walls:
+
+        # Sample a random point in the environment
+        p = env.sample_positions(n=1, method="random")[0]
+
+        # Get list of candidates
+        candidates = env.vectors_from_walls(p)
+
+        # Get norms of candidates
+        norms = np.linalg.norm(candidates, axis=1)
+
+        if np.min(norms) > min_gap:
+
+            # Get subset of candidates that are long enough
+            candidates = candidates[norms > min_len]
+
+            env.add_wall([p, p - candidates[0]])
+
+            added_walls += 1
+
+            # if candidates.shape[0] > 0:
+            #
+            #     # Choose random candidate
+            #     idx = np.random.randint(0, candidates.shape[0])
+            #
+            #     # Add wall
+            #     env.add_wall([p, p + candidates[idx]])
+            #     added_walls += 1
 
     return env
-
-
-def generate_random_trajectories(env, n_traj, traj_len, **params):
-    """Generates random trajectories.
-
-    Parameters
-    ----------
-    env: Environment
-        The environment in which the trajectories will be generated.
-    n_traj: int
-        Number of trajectories to be generated.
-    traj_len: int
-        Length of each trajectory.
-
-    Returns
-    -------
-    List of trajectories.
-    """
-    trajectories = []
-    for i in range(n_traj):
-
-        # Create agent
-        agent = Agent(env, params)
-
-        # Generate trajectory
-        for i in range(traj_len):
-            agent.update()
-
-        # Append
-        trajectories.append(agent.history['pos'])
-
-    return trajectories
-
-
-def generate_random_samples(env, n_samples):
-    """Generates random samples in the environment.
-    """
-    return env.sample_positions(n=n_samples, method='random')
 
 
 def add_random_walls(env, n_walls, min_gap=0.1, min_len=0.2):
@@ -168,15 +194,15 @@ def add_random_walls(env, n_walls, min_gap=0.1, min_len=0.2):
         p = env.sample_positions(n=1, method="random")[0]
 
         p2 = p
-        l = 0
+        l = min_len
         direction = 0
         found = False
         while not found:
 
             # Increase length
-            l += 0.01
+            l += 0.05
 
-            for d in np.arange(0, 2 * np.pi, 0.01):
+            for d in np.arange(0, 2 * np.pi, 0.1):
 
                 # Determine new point in direction d
                 p2 = [p[0] + l * np.cos(d), p[1] + l * np.sin(d)]
@@ -204,3 +230,136 @@ def add_random_walls(env, n_walls, min_gap=0.1, min_len=0.2):
                 added_walls += 1
 
     return env
+
+
+def generate_random_holes(polygon, n_holes, min_hole_points=3, max_hole_points=4, min_dist=0.3):
+    """Adds random holes to a Shapely polygon object.
+
+    Parameters
+    ----------
+    polygon: shapely.geometry.Polygon or list of points
+        The polygon to which holes will be added.
+    n_holes: int
+        The number of holes to add.
+    min_hole_points: int
+        The minimum number of points in each hole.
+    max_hole_points: int
+        The maximum number of points in each hole.
+    min_dist: float
+        Minimum distance from the polygon boundary.
+
+    Todo
+        * make sure that holes do not overlap.
+
+    Returns
+    -------
+    shapely.geometry.Polygon
+        The polygon object with the holes added.
+    """
+    if isinstance(polygon, list):
+        polygon = Polygon(polygon)
+
+    if not isinstance(polygon, Polygon):
+        raise ValueError("Polygon must be a shapely.geometry.Polygon object or a list of points.")
+
+    holes = []
+    for _ in range(n_holes):
+
+        # Generate a random number of points for the hole
+        if max_hole_points == min_hole_points:
+            n_points = max_hole_points
+        else:
+            n_points = np.random.randint(min_hole_points, max_hole_points)
+
+        # Generate random points within the polygon
+        hole_points = []
+        while len(hole_points) < n_points:
+            point = Point(
+                np.random.uniform(
+                    polygon.bounds[0] - np.sign(polygon.bounds[0]) * min_dist,
+                    polygon.bounds[2] - np.sign(polygon.bounds[2]) * min_dist),
+                np.random.uniform(
+                    polygon.bounds[1] - np.sign(polygon.bounds[1]) * min_dist,
+                    polygon.bounds[3] - np.sign(polygon.bounds[3]) * min_dist
+                )
+            )
+            if polygon.contains(point):
+                hole_points.append(point)
+
+        # Create a hole polygon from the generated points
+        points = [point.coords[0] for point in hole_points]
+        hole_polygon = Polygon(points)
+
+        # Subtract the hole polygon from the original polygon
+        polygon = polygon.difference(hole_polygon)
+
+        holes.append(points)
+
+    return holes, polygon
+
+
+def generate_trajectory(envs, timesteps, params):
+    """Generates a single trajectory."""
+
+    # Select environment
+    if isinstance(envs, list):
+        env = np.random.choice(envs)
+    else:
+        env = envs
+
+    # Create agent
+    agent = Agent(env, params)
+
+    # Generate trajectory
+    for _ in range(timesteps):
+        agent.update()
+
+    # Return trajectory
+    return agent.history['pos']
+
+
+def generate_random_trajectories(envs, n_traj, timesteps, **params):
+    """Generates random trajectories.
+
+    Parameters
+    ----------
+    envs: Environment or list of Environments
+        The environment in which the trajectories will be generated.
+    n_traj: int
+        Number of trajectories to be generated.
+    timesteps: int
+        Length of each trajectory.
+
+    Returns
+    -------
+    Tensor of shape.
+    """
+    # Create a Pool of worker processes
+    pool = Pool()
+
+    # Use the Pool to parallelize trajectory generation
+    results = pool.starmap(generate_trajectory, [(envs, timesteps, params) for i in range(n_traj)])
+
+    # Close the Pool to prevent further submissions
+    pool.close()
+
+    # Wait for all worker processes to finish
+    pool.join()
+
+    # Convert list of trajectories to a numpy array
+    p = np.array(results).astype('float32')
+
+    # Compute velocity
+    v = np.diff(p, axis=1)
+
+    # Convert trajectory arrays to torch Tensors
+    p = torch.Tensor(p)
+    v = torch.Tensor(v)
+
+    return p, v
+
+
+def generate_random_samples(env, n_samples):
+    """Generates random samples in the environment.
+    """
+    return torch.Tensor(env.sample_positions(n=n_samples, method='random').astype('float32'))
