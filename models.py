@@ -85,7 +85,13 @@ class ContextSpaceNet(OldSpaceNet):
 
 class RecurrentSpaceNet(OldSpaceNet):
     def __init__(self, n_in, n_out, scale = 0.4, **kwargs):
-        super(RecurrentSpaceNet, self).__init__(n_in, n_out, scale, **kwargs)
+        super().__init__(n_in, n_out, scale)
+        
+        self.g0 = torch.nn.Sequential(
+                torch.nn.Linear(2, 64),
+                torch.nn.ReLU(),
+                torch.nn.Linear(64, n_out),
+                torch.nn.ReLU())
 
         self.spatial_representation = torch.nn.RNN(
             input_size = n_in,
@@ -94,16 +100,29 @@ class RecurrentSpaceNet(OldSpaceNet):
             bias=False,
             batch_first=True)
         
-        torch.nn.init.eye_(self.spatial_representation.weight_hh_l0) # identity initialization
-
+        #self.gp = torch.nn.Sequential(
+        #    torch.nn.Linear(n_out, 64, bias = False),
+        #    torch.nn.ReLU(),
+        #)
+        
+        
+        torch.nn.init.eye_(self.spatial_representation.weight_hh_l0) # identity initialization        
+    
     def correlation_function(self, r):
         # Compare across time, not samples
         dr = torch.sum((r[:,:,None] - r[:,None])**2, dim = -1)
-        correlation = torch.exp(-0.5/self.scale**2*dr)
-        return correlation
+        correlation = torch.exp(-0.5/self.scale**2*dr) 
+        return torch.triu(correlation, diagonal = 0) # save some computation
+    
+    def initial_state(self, input_shape):
+        # random initial state
+        s0 = torch.rand(size = (input_shape, 2))
+        initial_state = self.g0(s0)
+        return initial_state
     
     def forward(self, inputs):
         # RNN returns representations and final hidden state
-        p, _ = self.spatial_representation(inputs) # ns, nr
+        initial_state = self.initial_state(inputs.shape[0])
+        p, _ = self.spatial_representation(inputs, initial_state[None])
         corr = p@torch.transpose(p, dim0 = -1, dim1 = -2) # correlation matrix
-        return corr
+        return torch.triu(corr, diagonal = 0)
