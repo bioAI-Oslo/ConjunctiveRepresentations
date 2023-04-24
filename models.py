@@ -87,8 +87,8 @@ class RecurrentSpaceNet(OldSpaceNet):
     def __init__(self, n_in, n_out, scale = 0.4, **kwargs):
         super().__init__(n_in, n_out, scale)
         
-        self.g0 = torch.nn.Sequential(
-                torch.nn.Linear(2, 64),
+        self.p0 = torch.nn.Sequential(
+                torch.nn.Linear(32, 64),
                 torch.nn.ReLU(),
                 torch.nn.Linear(64, n_out),
                 torch.nn.ReLU())
@@ -98,13 +98,7 @@ class RecurrentSpaceNet(OldSpaceNet):
             hidden_size = n_out,
             nonlinearity= "relu",
             bias=False,
-            batch_first=True)
-        
-        #self.gp = torch.nn.Sequential(
-        #    torch.nn.Linear(n_out, 64, bias = False),
-        #    torch.nn.ReLU(),
-        #)
-        
+            batch_first=True)        
         
         torch.nn.init.eye_(self.spatial_representation.weight_hh_l0) # identity initialization        
     
@@ -116,8 +110,8 @@ class RecurrentSpaceNet(OldSpaceNet):
     
     def initial_state(self, input_shape):
         # random initial state
-        s0 = torch.rand(size = (input_shape, 2))
-        initial_state = self.g0(s0)
+        s0 = torch.ones(size = (input_shape, 32))
+        initial_state = self.p0(s0)
         return initial_state
     
     def forward(self, inputs):
