@@ -84,8 +84,9 @@ class ContextSpaceNet(OldSpaceNet):
         return loss
 
 class RecurrentSpaceNet(OldSpaceNet):
-    def __init__(self, n_in, n_out, scale = 0.4, **kwargs):
+    def __init__(self, n_in, n_out, scale = 0.4, device = "cpu", **kwargs):
         super().__init__(n_in, n_out, scale)
+        self.device = device
         
         self.p0 = torch.nn.Sequential(
                 torch.nn.Linear(32, 64),
@@ -100,8 +101,9 @@ class RecurrentSpaceNet(OldSpaceNet):
             bias=False,
             batch_first=True)        
         
-        torch.nn.init.eye_(self.spatial_representation.weight_hh_l0) # identity initialization        
-    
+        torch.nn.init.eye_(self.spatial_representation.weight_hh_l0) # identity initialization
+        self.to(device)
+        
     def correlation_function(self, r):
         # Compare across time, not samples
         dr = torch.sum((r[:,:,None] - r[:,None])**2, dim = -1)
@@ -110,7 +112,7 @@ class RecurrentSpaceNet(OldSpaceNet):
     
     def initial_state(self, input_shape):
         # random initial state
-        s0 = torch.ones(size = (input_shape, 32))
+        s0 = torch.ones(size = (input_shape, 32), device = self.device)
         initial_state = self.p0(s0)
         return initial_state
     
