@@ -121,7 +121,7 @@ def generate_random_polygon_env(n_env=1, add_walls=True, add_holes=True, **param
 
         # Add walls
         if add_walls:
-            env = add_random_walls(env, np.random.randint(0, 2))
+            env = add_random_walls_new(env, np.random.randint(1, 5))
 
         envs.append(env)
 
@@ -151,18 +151,21 @@ def add_random_walls_new(env, n_walls, min_gap=0.1, min_len=0.2):
             # Get subset of candidates that are long enough
             candidates = candidates[norms > min_len]
 
-            env.add_wall([p, p - candidates[0]])
+            if candidates.shape[0] > 0:
 
-            added_walls += 1
+                # Choose random candidate
+                idx = np.random.randint(0, candidates.shape[0])
 
-            # if candidates.shape[0] > 0:
-            #
-            #     # Choose random candidate
-            #     idx = np.random.randint(0, candidates.shape[0])
-            #
-            #     # Add wall
-            #     env.add_wall([p, p + candidates[idx]])
-            #     added_walls += 1
+                # Get second point
+                p2 = p - candidates[idx]
+
+                # Check for collisions
+                _, wall_collision = env.check_wall_collisions(np.array([p, p2]))
+
+                # Add wall
+                if not np.any(wall_collision):
+                    env.add_wall([p, p2])
+                    added_walls += 1
 
     return env
 
