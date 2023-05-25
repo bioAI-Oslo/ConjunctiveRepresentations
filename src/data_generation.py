@@ -40,7 +40,7 @@ def random_angle_steps(steps: int, irregularity: float):
     return angles
 
 
-def generate_random_polygon(avg_radius=2, irregularity=0.5, spikiness=0.5, max_num_vertices=8, **params):
+def generate_random_polygon(avg_radius=1, irregularity=0.5, spikiness=0.2, max_num_vertices=8, **params):
     """Creates the polygon by sampling points on a circle around the center.
     Angular spacing between sequential points, and radial distance of each
     point from the centre are varied randomly.
@@ -112,18 +112,18 @@ def generate_random_polygon_env(n_env=1, add_walls=True, add_holes=True, **param
     for i in range(n_env):
 
         # Generate random polygon
-        random_polygon = generate_random_polygon(**params)
+        points = generate_random_polygon(**params)
 
         holes = []
         if add_holes:
-            holes, _ = generate_random_holes(random_polygon, n_holes=np.random.randint(0, 2))
+            holes, _ = generate_random_holes(points, n_holes=np.random.randint(0, 2))
 
         # Create environment
-        env = Environment({'boundary': random_polygon, 'holes': holes})
+        env = Environment({'boundary': points, 'holes': holes})
 
         # Add walls
         if add_walls:
-            env = add_random_walls_new(env, np.random.randint(1, 5))
+            env = add_random_walls(env, np.random.randint(1, 3))
 
         envs.append(env)
 
@@ -133,7 +133,7 @@ def generate_random_polygon_env(n_env=1, add_walls=True, add_holes=True, **param
     return envs
 
 
-def add_random_walls_new(env, n_walls, min_gap=0.1, min_len=0.2):
+def add_random_walls(env, n_walls, min_gap=0.1, min_len=0.2):
     """Adds n_walls random walls to the environment.
     """
     added_walls = 0
@@ -168,71 +168,6 @@ def add_random_walls_new(env, n_walls, min_gap=0.1, min_len=0.2):
                 if not np.any(wall_collision):
                     env.add_wall([p, p2])
                     added_walls += 1
-
-    return env
-
-
-def add_random_walls(env, n_walls, min_gap=0.1, min_len=0.2):
-    """Adds n_walls random walls to the environment.
-
-    Parameters
-    ----------
-    env : Environment
-        Environment to add walls to.
-    n_walls : int
-        Number of walls to add.
-    min_gap : float, optional
-        Minimum gap size in the opposite direction, by default 0.1
-    min_len : float, optional
-        Minimum wall length, by default 0.2
-
-    Returns
-    -------
-    Environment
-        Environment with added walls.
-    """
-
-    added_walls = 0
-    while added_walls < n_walls:
-
-        # Sample a random point in the environment
-        p = env.sample_positions(n=1, method="random")[0]
-
-        p2 = p
-        l = min_len
-        direction = 0
-        found = False
-        while not found:
-
-            # Increase length
-            l += 0.05
-
-            for d in np.arange(0, 2 * np.pi, 0.1):
-
-                # Determine new point in direction d
-                p2 = [p[0] + l * np.cos(d), p[1] + l * np.sin(d)]
-
-                # Calculate wall collisions
-                _, wall_collision = env.check_wall_collisions(np.array([p, p2]))
-
-                if np.any(wall_collision) or not env.check_if_position_is_in_environment(p2):
-                    found = True
-                    direction = d
-                    break
-
-        # Determine point with minimum gap size in opposite direction
-        p3 = [p[0] + min_gap * np.cos(direction + np.pi), p[1] + min_gap * np.sin(direction + np.pi)]
-
-        # Calculate wall collisions
-        _, wall_collision = env.check_wall_collisions(np.array([p, p3]))
-
-        # Check if the gap is large enough
-        if env.check_if_position_is_in_environment(p3) and not np.any(wall_collision):
-
-            # Add wall if p2 is not equal to p and l is large enough
-            if not np.all(p == p2) and l > min_len:
-                env.add_wall([p, p2])
-                added_walls += 1
 
     return env
 
@@ -312,15 +247,28 @@ def generate_trajectory(envs, timesteps, params):
     else:
         env = envs
 
-    # Create agent
-    agent = Agent(env, params)
+    while True:
 
-    # Generate trajectory
-    for _ in range(timesteps):
-        agent.update()
+        # Create agent
+        agent = Agent(env, params)
 
-    # Return trajectory
-    return agent.history['pos']
+        # Generate trajectory
+        for t in range(timesteps):
+
+            agent.update()
+
+            # Check if the agent had a collision with the environment
+            if len(agent.history["pos"]) > 1:
+
+                w, wc = agent.Environment.check_wall_collisions(np.array([agent.history["pos"][-2], agent.history["pos"][-1]]))
+
+                # If there was a collision, break the for-loop
+                if np.any(wc):
+                    break
+
+        # Return agent
+        if t == timesteps - 1:
+            return agent
 
 
 def generate_random_trajectories(envs, n_traj, timesteps, **params):
@@ -352,7 +300,7 @@ def generate_random_trajectories(envs, n_traj, timesteps, **params):
     pool.join()
 
     # Convert list of trajectories to a numpy array
-    p = np.array(results).astype('float32')
+    p = np.array([agent.history['pos'] for agent in results]).astype('float32')
 
     # Compute velocity
     v = np.diff(p, axis=1)
@@ -458,7 +406,6 @@ class PolygonEnvironment:
 
         # Create polygon
         if add_holes:
-
             # Generate random holes
             self.add_random_holes(n_holes=np.random.randint(0, 1), **params)
 
@@ -491,8 +438,10 @@ class PolygonEnvironment:
                     crossing_direction = np.array(stop) - np.array(start)
 
                     # Check if the wall was crossed in x, y, or both directions
-                    x_crossed = (np.sign(wall_direction[0]) == np.sign(crossing_direction[0])) and (abs(crossing_direction[0]) > 0)
-                    y_crossed = (np.sign(wall_direction[1]) == np.sign(crossing_direction[1])) and (abs(crossing_direction[1]) > 0)
+                    x_crossed = (np.sign(wall_direction[0]) == np.sign(crossing_direction[0])) and (
+                                abs(crossing_direction[0]) > 0)
+                    y_crossed = (np.sign(wall_direction[1]) == np.sign(crossing_direction[1])) and (
+                                abs(crossing_direction[1]) > 0)
 
                     # Return the direction(s) in which the wall was crossed
                     if x_crossed and y_crossed:
@@ -537,7 +486,6 @@ class PolygonEnvironment:
         angle_step = 0.1
         speed_decrease = 0.9
         while np.any(wall_crossed):
-
             # Rotate vector clockwise, decrease speed with every step
             cos_angle = np.cos(angle_step)
             sin_angle = np.sin(angle_step)
@@ -554,13 +502,13 @@ class PolygonEnvironment:
 
         return prop_v
 
-    def generate_random_trajectories(self, n_steps, n_traj, rayleigh_scale=0.05, vonmises_kappa=4*np.pi):
+    def generate_random_trajectories(self, n_steps, n_traj, rayleigh_scale=0.05, vonmises_kappa=4 * np.pi):
         """Generates a number of trajectories of specified length in this environment.
         """
 
         # Generate random speeds and directions
         speeds = rayleigh.rvs(scale=rayleigh_scale, size=(n_traj, n_steps))
-        prev_hd = np.random.uniform(0, 2*np.pi, n_traj)
+        prev_hd = np.random.uniform(0, 2 * np.pi, n_traj)
         positions = np.zeros((n_traj, n_steps, 2))
 
         # Initialize the trajectories with random starting points
@@ -574,7 +522,6 @@ class PolygonEnvironment:
 
         # Generate the trajectories
         for step in range(1, n_steps):
-
             # Compute head direction
             hd = np.random.vonmises(prev_hd, vonmises_kappa, n_traj)
 
@@ -614,7 +561,8 @@ class PolygonEnvironment:
 
             # Sample a random point in the environment
             while True:
-                x, y = np.random.uniform(self.polygon.bounds[0], self.polygon.bounds[2]), np.random.uniform(self.polygon.bounds[1], self.polygon.bounds[3])
+                x, y = np.random.uniform(self.polygon.bounds[0], self.polygon.bounds[2]), np.random.uniform(
+                    self.polygon.bounds[1], self.polygon.bounds[3])
                 p1 = np.array([x, y])
                 if self.polygon.contains(Point(p1)):
                     break
@@ -640,7 +588,6 @@ class PolygonEnvironment:
 
                     # Check for collisions
                     if not np.any(self.crosses_wall(p1, p2)):
-
                         # Get normalized perpendicular vector
                         perp_vec = self.perpendicular_vec(p2 - p1)
 
@@ -736,7 +683,7 @@ class PolygonEnvironment:
         for wall in self.walls:
             x, y = wall.xy
             ax.plot(x, y, color='black')
-            
+
         # Remove top and right spines
         if not show_scale:
             ax.spines[['top', 'right', 'left', 'bottom']].set_visible(False)
@@ -747,5 +694,5 @@ class PolygonEnvironment:
 
         if show:
             plt.show()
-        
+
         return fig, ax
