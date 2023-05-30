@@ -43,11 +43,11 @@ class OldSpaceNet(SpaceNetTemplate):
     def __init__(self, n_in, n_out, scale=0.4, **kwargs):
         super(OldSpaceNet, self).__init__(scale, **kwargs)
         self.spatial_representation = torch.nn.Sequential(
-            torch.nn.Linear(n_in, 512),
+            torch.nn.Linear(n_in, 64),
             torch.nn.ReLU(),
-            torch.nn.Linear(512, 512),
+            torch.nn.Linear(64, 128),
             torch.nn.ReLU(),
-            torch.nn.Linear(512, n_out),
+            torch.nn.Linear(128, n_out),
             torch.nn.ReLU()
         )
 
@@ -83,7 +83,6 @@ class ContextSpaceNet(OldSpaceNet):
         label_corr = label_space * label_context
         loss = torch.mean((corr - label_corr) ** 2)
         return loss
-
 
 class RecurrentSpaceNet(SpaceNetTemplate):
 
@@ -225,6 +224,66 @@ class RecurrentSpaceNet(SpaceNetTemplate):
         corr = p @ torch.transpose(p, dim0=-1, dim1=-2)
         return torch.triu(corr, diagonal=0)
 
+class Decoder(torch.nn.Module):
+    # Decodes from trained recurrent network states into Cartesian coordinates
+    def __init__(self, n_in, n_out = 2, **kwargs):
+        """ Dense network decoder
+
+        Args:
+            n_in (int): number of inputs features. 
+            n_out (int): number of output features. Defaults to 2
+        """
+        
+        super(Decoder, self).__init__(**kwargs)
+        self.decoder = torch.nn.Sequential(
+            torch.nn.Linear(n_in, 128),
+            torch.nn.ReLU(),
+            torch.nn.Linear(128, 256),
+            torch.nn.ReLU(),
+            torch.nn.Linear(256, n_out))
+        self.mse = torch.nn.MSELoss()
+        
+    def forward(self, x):
+        return self.decoder(x)
+
+    def train_step(self, x, y, optimizer):
+        optimizer.zero_grad()
+        loss = self.loss_fn(x, y)
+        loss.backward()
+        optimizer.step()
+        return loss.item()
+       
+    def loss_fn(self, x, y):
+        return self.mse(self(x), y)
+    
+class End2End(RecurrentSpaceNet):
+    def __init__(self, n_in, n_out, **kwargs):
+        """ RNN trained end to end to decode into Cartesian coordinates
+
+        Args:
+            n_in (int): number of input features 
+            n_out (int): number of output features. Defaults to 2.
+        """
+        super(End2End, self).__init__(n_in, n_out, **kwargs)
+        self.decoder = Decoder(n_out, n_in)
+        """ 
+        torch.nn.Sequential(
+            torch.nn.Linear(n_out, 128),
+            torch.nn.ReLU(),
+            torch.nn.Linear(128, 256),
+            torch.nn.ReLU(),
+            torch.nn.Linear(256, n_in))
+        """
+        self.mse = torch.nn.MSELoss()
+
+    def forward(self, inputs):
+        # RNN returns representations and final hidden state
+        initial_state = self.p0(inputs[1])
+        p, _ = self.spatial_representation(inputs[0], initial_state[None])
+        return self.decoder(p)
+
+    def loss_fn(self, x, y):
+        return self.mse(self(x), y)
 
 class StackedRecurrentSpaceNet(RecurrentSpaceNet):
 
