@@ -58,7 +58,7 @@ def ratemap_collage(ratemaps, cols = 5 ,figsize = (5,5), **kwargs):
     fig, axs = plt.subplots(cols, rows, figsize = figsize, **kwargs)
 
     for i in range(len(ratemaps)):
-        axs[i//cols, i%cols].imshow(ratemaps[i].T, origin = "lower")
+        axs[i//cols, i%cols].imshow(ratemaps[i].T, origin = "lower", interpolation = None)
         axs[i//cols, i%cols].axis("off")
     
     return fig, axs

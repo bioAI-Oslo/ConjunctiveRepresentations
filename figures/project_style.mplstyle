@@ -36,8 +36,8 @@ figure.figsize:   3.2, 2.4 # figure size in inches
 figure.autolayout: False
 
 figure.constrained_layout.use: True  # When True, automatically make plot
-figure.constrained_layout.h_pad:  0.04167  # Padding around axes objects. Float representing
-figure.constrained_layout.w_pad:  0.04167  # inches. Default is 3/72 inches (3 points)
+figure.constrained_layout.h_pad:  0.02  # Padding around axes objects. Float representing
+figure.constrained_layout.w_pad:  0.02  # inches. Default is 3/72 inches (3 points)
 
 
 
