@@ -31,10 +31,11 @@ class SpaceNetTemplate(nn.Module):
 
     def loss_fn(self, x, y):
         # x = inputs to model, y = labels
-        corr = self(x)
+        corr, p = self(x)
         label_corr = self.correlation_function(y)
         loss = torch.mean((corr - label_corr) ** 2)
-        return loss
+        #loss = torch.mean(corr*label_corr)
+        return loss + torch.mean(p**2)
 
 
 class OldSpaceNet(SpaceNetTemplate):
@@ -50,17 +51,20 @@ class OldSpaceNet(SpaceNetTemplate):
             torch.nn.Linear(128, n_out),
             torch.nn.ReLU()
         )
-
+        #self.cos = torch.nn.CosineSimilarity(dim = -1)
+        
     def forward(self, inputs):
         p = self.spatial_representation(inputs)  # ns, nr
-        corr = p @ torch.transpose(p, dim0=-1, dim1=-2)  # correlation matrix
-        return corr
 
-    def correlation_function(self, r):
-        dr = torch.sum((r[:, None] - r[None]) ** 2, dim=-1)
+        dp = torch.pdist(p)**2
+        corr = torch.exp(-dp)
+        
+        return corr, p
+
+    def correlation_function(self, r):        
+        dr = torch.nn.functional.pdist(r)**2
         correlation = torch.exp(-0.5 / self.scale ** 2 * dr)
         return correlation
-
 
 class ContextSpaceNet(OldSpaceNet):
     """An extension of the feedforward SpaceNet model that includes context.
@@ -77,12 +81,12 @@ class ContextSpaceNet(OldSpaceNet):
         Returns:
             loss (1D tensor)
         """
-        corr = self(x)
+        corr, p = self(x)
         label_space = self.correlation_function(y[:, :-1])
         label_context = self.correlation_function(y[:, -1, None])
         label_corr = label_space * label_context
         loss = torch.mean((corr - label_corr) ** 2)
-        return loss
+        return loss + torch.mean(p**2)
 
 class RecurrentSpaceNet(SpaceNetTemplate):
 
@@ -139,6 +143,7 @@ class RecurrentSpaceNet(SpaceNetTemplate):
 
         torch.nn.init.eye_(self.spatial_representation.weight_hh_l0)
         # self.init_weights(init_weights)
+        
 
         self.to(device)
 
@@ -164,22 +169,17 @@ class RecurrentSpaceNet(SpaceNetTemplate):
         r: torch tensor
             Spatial coordinates of shape (batch size, time steps, 2).
         """
-        # Compare across time, not samples
-        if not self.corr_across_space:
-            dr = torch.sum((r[:, :, None] - r[:, None]) ** 2, dim=-1)
-
-        # Compare across time and samples
-        else:
-
+            
+        if self.corr_across_space:
             # Flatten time-location dimension
             rr = torch.reshape(r, (-1, 2))  # bs*ts, 2
-
-            # Compute pairwise distance for flattened array
-            dr = torch.sum((rr[:, None] - rr[None]) ** 2, dim=-1)
+            dr = torch.nn.functional.pdist(rr)**2
+        else:
+            dr = torch.cdist(r, r)**2
 
         # Calculate correlation
         correlation = torch.exp(-0.5 / self.scale ** 2 * dr)
-        return torch.triu(correlation, diagonal=0)  # save some computation
+        return correlation  # save some computation
 
     def initial_state(self, initial_input):
         """Generates an initial state for the RNN.
@@ -219,10 +219,13 @@ class RecurrentSpaceNet(SpaceNetTemplate):
         # Flatten across time and samples
         if self.corr_across_space:
             p = torch.reshape(p, (-1, p.shape[-1]))  # bsts, N
+            dp = torch.nn.functional.pdist(p)**2
+        else:
+            dp = torch.cdist(p, p)**2
 
-        # Compute correlation
-        corr = p @ torch.transpose(p, dim0=-1, dim1=-2)
-        return torch.triu(corr, diagonal=0)
+        corr = torch.exp(-dp) 
+        
+        return corr, p
 
 class Decoder(torch.nn.Module):
     # Decodes from trained recurrent network states into Cartesian coordinates
