@@ -11,10 +11,11 @@ class SpaceNetTemplate(nn.Module):
         * this could be an abstract class
     """
 
-    def __init__(self, scale=0.4, device='cpu', **kwargs):
+    def __init__(self, scale=0.4, lam = 1, device='cpu', **kwargs):
         super().__init__()
         self.scale = scale
         self.device = device
+        self.lam = lam
 
     @abstractmethod
     def correlation_function(self, r):
@@ -35,14 +36,14 @@ class SpaceNetTemplate(nn.Module):
         label_corr = self.correlation_function(y)
         loss = torch.mean((corr - label_corr) ** 2)
         #loss = torch.mean(corr*label_corr)
-        return loss + torch.mean(p**2)
+        return loss + self.lam*torch.mean(p**2)
 
 
 class OldSpaceNet(SpaceNetTemplate):
     """Feedforward SpaceNet model with a single hidden layer."""
 
-    def __init__(self, n_in, n_out, scale=0.4, **kwargs):
-        super(OldSpaceNet, self).__init__(scale, **kwargs)
+    def __init__(self, n_in, n_out, scale=0.4, lam = 1, **kwargs):
+        super(OldSpaceNet, self).__init__(scale, lam, **kwargs)
         self.spatial_representation = torch.nn.Sequential(
             torch.nn.Linear(n_in, 64),
             torch.nn.ReLU(),
@@ -86,7 +87,7 @@ class ContextSpaceNet(OldSpaceNet):
         label_context = self.correlation_function(y[:, -1, None])
         label_corr = label_space * label_context
         loss = torch.mean((corr - label_corr) ** 2)
-        return loss + torch.mean(p**2)
+        return loss + self.lam*torch.mean(p**2)
 
 class RecurrentSpaceNet(SpaceNetTemplate):
 
