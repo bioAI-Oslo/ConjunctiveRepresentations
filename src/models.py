@@ -11,11 +11,11 @@ class SpaceNetTemplate(nn.Module):
         * this could be an abstract class
     """
 
-    def __init__(self, scale=0.4, lam = 1, device='cpu', **kwargs):
+    def __init__(self, scale=0.25, lam = 1, device='cpu', **kwargs):
         super().__init__()
         self.scale = scale
-        self.device = device
         self.lam = lam
+        self.device = device
 
     @abstractmethod
     def correlation_function(self, r):
@@ -38,12 +38,11 @@ class SpaceNetTemplate(nn.Module):
         #loss = torch.mean(corr*label_corr)
         return loss + self.lam*torch.mean(p**2)
 
-
 class OldSpaceNet(SpaceNetTemplate):
     """Feedforward SpaceNet model with a single hidden layer."""
 
-    def __init__(self, n_in, n_out, scale=0.4, lam = 1, **kwargs):
-        super(OldSpaceNet, self).__init__(scale, lam, **kwargs)
+    def __init__(self, n_in, n_out, **kwargs):
+        super(OldSpaceNet, self).__init__(**kwargs)
         self.spatial_representation = torch.nn.Sequential(
             torch.nn.Linear(n_in, 64),
             torch.nn.ReLU(),
@@ -52,14 +51,12 @@ class OldSpaceNet(SpaceNetTemplate):
             torch.nn.Linear(128, n_out),
             torch.nn.ReLU()
         )
-        #self.cos = torch.nn.CosineSimilarity(dim = -1)
+        self.to(self.device)
         
     def forward(self, inputs):
         p = self.spatial_representation(inputs)  # ns, nr
-
         dp = torch.pdist(p)**2
         corr = torch.exp(-dp)
-        
         return corr, p
 
     def correlation_function(self, r):        
@@ -70,8 +67,8 @@ class OldSpaceNet(SpaceNetTemplate):
 class ContextSpaceNet(OldSpaceNet):
     """An extension of the feedforward SpaceNet model that includes context.
     """
-
-    def loss_fn(self, x, y):
+    
+    def loss_fn(self, x, ys):
         """Loss function
 
         Args:
@@ -83,13 +80,16 @@ class ContextSpaceNet(OldSpaceNet):
             loss (1D tensor)
         """
         corr, p = self(x)
-        label_space = self.correlation_function(y[:, :-1])
-        label_context = self.correlation_function(y[:, -1, None])
-        label_corr = label_space * label_context
-        loss = torch.mean((corr - label_corr) ** 2)
+        
+        labels = torch.ones_like(corr)
+
+        for y in ys:
+            labels *= self.correlation_function(y)
+
+        loss = torch.mean((corr - labels) ** 2)
         return loss + self.lam*torch.mean(p**2)
 
-class RecurrentSpaceNet(SpaceNetTemplate):
+class RecurrentSpaceNet(ContextSpaceNet):
 
     def __init__(
             self,
@@ -119,7 +119,7 @@ class RecurrentSpaceNet(SpaceNetTemplate):
         device: str
             The device this model should be used on.
         """
-        super().__init__(**kwargs)
+        super().__init__(n_in, n_out, **kwargs)
         self.corr_across_space = corr_across_space
         self.initial_state_size = initial_state_size
         self.num_layers = num_layers
@@ -144,8 +144,6 @@ class RecurrentSpaceNet(SpaceNetTemplate):
 
         torch.nn.init.eye_(self.spatial_representation.weight_hh_l0)
         # self.init_weights(init_weights)
-        
-
         self.to(device)
 
     def init_weights(self, method='identity'):
