@@ -160,25 +160,25 @@ class RecurrentSpaceNet(ContextSpaceNet):
             else:
                 raise ValueError('Unknown initialization method.')
 
-    def correlation_function(self, r):
-        """Computes the correlation function.
+    def correlation_function(self, z):
+        """Computes the similarity function.
 
         Parameters
         ----------
-        r: torch tensor
-            Spatial coordinates of shape (batch size, time steps, 2).
+        z: torch tensor
+            E.g. coordinates or context vector, of shape (batch size, time steps, 2).
         """
             
         if self.corr_across_space:
             # Flatten time-location dimension
-            rr = torch.reshape(r, (-1, 2))  # bs*ts, 2
-            dr = torch.nn.functional.pdist(rr)**2
+            zz = torch.reshape(z, (-1, z.shape[-1]))  # bs*ts, 2
+            dz = torch.nn.functional.pdist(zz)**2
         else:
-            dr = torch.cdist(r, r)**2
+            dz = torch.cdist(z, z)**2
 
         # Calculate correlation
-        correlation = torch.exp(-0.5 / self.scale ** 2 * dr)
-        return correlation  # save some computation
+        correlation = torch.exp(-0.5 / self.scale ** 2 * dz)
+        return correlation
 
     def initial_state(self, initial_input):
         """Generates an initial state for the RNN.
