@@ -38,6 +38,7 @@ class SpaceNetTemplate(nn.Module):
         #loss = torch.mean(corr*label_corr)
         return loss + self.lam*torch.mean(p**2)
 
+
 class OldSpaceNet(SpaceNetTemplate):
     """Feedforward SpaceNet model with a single hidden layer."""
 
@@ -55,14 +56,15 @@ class OldSpaceNet(SpaceNetTemplate):
         
     def forward(self, inputs):
         p = self.spatial_representation(inputs)  # ns, nr
-        dp = torch.pdist(p)**2
+        dp = torch.pdist(p) **2
         corr = torch.exp(-dp)
         return corr, p
 
     def correlation_function(self, r):        
-        dr = torch.nn.functional.pdist(r)**2
+        dr = torch.nn.functional.pdist(r) **2
         correlation = torch.exp(-0.5 / self.scale ** 2 * dr)
         return correlation
+
 
 class ContextSpaceNet(OldSpaceNet):
     """An extension of the feedforward SpaceNet model that includes context.
@@ -79,15 +81,24 @@ class ContextSpaceNet(OldSpaceNet):
         Returns:
             loss (1D tensor)
         """
+        # Get output of the model, which is the correlations (corr)
+        # and the spatial representation (p)
         corr, p = self(x)
         
+        # Iterate over all ys. In case of context, ys is a tuple of tensors, and
+        # the correlation function is computed both spatially, and for the context.
         labels = torch.ones_like(corr)
-
         for y in ys:
             labels *= self.correlation_function(y)
 
+        # Compute loss between the correlations and the labels
         loss = torch.mean((corr - labels) ** 2)
-        return loss + self.lam*torch.mean(p**2)
+
+        # Add regularization term
+        total_loss = loss + self.lam*torch.mean(p**2)
+
+        return total_loss
+
 
 class RecurrentSpaceNet(ContextSpaceNet):
 
@@ -207,9 +218,11 @@ class RecurrentSpaceNet(ContextSpaceNet):
     def forward(self, inputs):
         # Get initial state
         if isinstance(inputs, tuple):
+            # This is the case where we get the initial position as well
             initial_state = self.initial_state(inputs[1])
             inputs = inputs[0]
         else:
+            # This is for the case where we use a static initial state
             initial_state = self.initial_state(inputs.shape[0])
 
         # RNN returns representations and final hidden state
