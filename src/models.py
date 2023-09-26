@@ -35,7 +35,6 @@ class SpaceNetTemplate(nn.Module):
         corr, p = self(x)
         label_corr = self.correlation_function(y)
         loss = torch.mean((corr - label_corr) ** 2)
-        #loss = torch.mean(corr*label_corr)
         return loss + self.lam*torch.mean(p**2)
 
 
@@ -54,7 +53,7 @@ class OldSpaceNet(SpaceNetTemplate):
         )
         self.to(self.device)
         
-    def forward(self, inputs):
+    def forward(self, inputs, **kwargs):
         p = self.spatial_representation(inputs)  # ns, nr
         dp = torch.pdist(p) **2
         corr = torch.exp(-dp)
@@ -70,20 +69,21 @@ class ContextSpaceNet(OldSpaceNet):
     """An extension of the feedforward SpaceNet model that includes context.
     """
     
-    def loss_fn(self, x, ys):
+    def loss_fn(self, x, ys, **kwargs):
         """Loss function
 
         Args:
-            inputs: Torch tensor of shape (batch size, 3). The function assumes
+            x: Torch tensor of shape (batch size, 3). The function assumes
             that the first two components are spatial coordinates, while
             the last is a context coordinate.
+            ys:  A tuple of tensors.
 
         Returns:
             loss (1D tensor)
         """
         # Get output of the model, which is the correlations (corr)
         # and the spatial representation (p)
-        corr, p = self(x)
+        corr, p = self.forward(x)
         
         # Iterate over all ys. In case of context, ys is a tuple of tensors, and
         # the correlation function is computed both spatially, and for the context.
@@ -110,7 +110,7 @@ class RecurrentSpaceNet(ContextSpaceNet):
             corr_across_space=False,
             num_layers=1,
             device='cpu',
-            init_weights='identity',
+            stateful=False,
             **kwargs
     ):
         """Initializes a basic recurrent SpaceNet model.
@@ -129,6 +129,10 @@ class RecurrentSpaceNet(ContextSpaceNet):
             Number of layers in the RNN.
         device: str
             The device this model should be used on.
+        stateful: bool
+            If True, the model will be stateful, i.e. the hidden state will be returned and
+            can be passed on to the next batch.
+
         """
         super().__init__(n_in, n_out, **kwargs)
         self.corr_across_space = corr_across_space
@@ -136,6 +140,7 @@ class RecurrentSpaceNet(ContextSpaceNet):
         self.num_layers = num_layers
         self.n_out = n_out
         self.device = device
+        self.stateful = stateful
 
         self.p0 = torch.nn.Sequential(
             torch.nn.Linear(initial_state_size, 64),
@@ -154,7 +159,6 @@ class RecurrentSpaceNet(ContextSpaceNet):
         )
 
         torch.nn.init.eye_(self.spatial_representation.weight_hh_l0)
-        # self.init_weights(init_weights)
         self.to(device)
 
     def init_weights(self, method='identity'):
@@ -170,6 +174,43 @@ class RecurrentSpaceNet(ContextSpaceNet):
                 pass
             else:
                 raise ValueError('Unknown initialization method.')
+
+    def loss_fn(self, x, ys, hidden_state=None, **kwargs):
+        """Loss function
+
+        Args:
+            inputs: Torch tensor of shape (batch size, 3). The function assumes
+            that the first two components are spatial coordinates, while
+            the last is a context coordinate.
+
+            ys:  A tuple of tensors. Each tensor represents a different dimension (space, context, etc.)
+
+            hidden_state: The hidden state of the RNN. If None, the initial state
+            will be computed using the initial state network.
+
+        Returns:
+            loss (1D tensor)
+        """
+        # Get output of the model, which is the correlations (corr)
+        # and the spatial representation (p), and the new hidden state
+        corr, p, new_hidden_state = self.forward(x, hidden_state=hidden_state)
+
+        # Iterate over all ys. In case of context, ys is a tuple of tensors, and
+        # the correlation function is computed both spatially, and for the context.
+        labels = torch.ones_like(corr)
+        for y in ys:
+            labels *= self.correlation_function(y)
+
+        # Compute loss between the correlations and the labels
+        loss = torch.mean((corr - labels) ** 2)
+
+        # Add regularization term
+        total_loss = loss + self.lam*torch.mean(p**2)
+
+        if self.stateful:
+            return total_loss, new_hidden_state
+
+        return total_loss
 
     def correlation_function(self, z):
         """Computes the similarity function.
@@ -198,7 +239,7 @@ class RecurrentSpaceNet(ContextSpaceNet):
         In that case, initial input is the batch size.
 
         If initial_input is a tensor, it will be passed through a linear layer directly. In this case, the current
-        location, or a random tensor may be passed.
+        location, a random tensor, or some other initial information may be passed.
         """
         # Static initial state
         if isinstance(initial_input, int):
@@ -215,18 +256,26 @@ class RecurrentSpaceNet(ContextSpaceNet):
 
         return initial_state
 
-    def forward(self, inputs):
-        # Get initial state
-        if isinstance(inputs, tuple):
+    def forward(self, inputs, hidden_state=None):
+
+        # Check if we have a hidden state
+        if hidden_state is None:
+
             # This is the case where we get the initial position as well
-            initial_state = self.initial_state(inputs[1])
-            inputs = inputs[0]
+            if isinstance(inputs, tuple):
+                initial_state = self.initial_state(inputs[1])
+                inputs = inputs[0]
+            else:
+                # This is for the case where we use a static initial state
+                initial_state = self.initial_state(inputs.shape[0])
+
         else:
-            # This is for the case where we use a static initial state
-            initial_state = self.initial_state(inputs.shape[0])
+
+            # Use given initial state
+            initial_state = hidden_state
 
         # RNN returns representations and final hidden state
-        p, _ = self.spatial_representation(inputs, initial_state)
+        p, new_hidden_state = self.spatial_representation(inputs, initial_state)
 
         # Flatten across time and samples
         if self.corr_across_space:
@@ -235,9 +284,11 @@ class RecurrentSpaceNet(ContextSpaceNet):
         else:
             dp = torch.cdist(p, p)**2
 
+        # Apply exponential
         corr = torch.exp(-dp) 
         
-        return corr, p
+        return corr, p, new_hidden_state
+
 
 class Decoder(torch.nn.Module):
     # Decodes from trained recurrent network states into Cartesian coordinates
@@ -270,7 +321,8 @@ class Decoder(torch.nn.Module):
        
     def loss_fn(self, x, y):
         return self.mse(self(x), y)
-    
+
+
 class End2End(RecurrentSpaceNet):
     def __init__(self, n_in, n_out, **kwargs):
         """ RNN trained end to end to decode into Cartesian coordinates
@@ -299,6 +351,7 @@ class End2End(RecurrentSpaceNet):
 
     def loss_fn(self, x, y):
         return self.mse(self(x), y)
+
 
 class StackedRecurrentSpaceNet(RecurrentSpaceNet):
 
