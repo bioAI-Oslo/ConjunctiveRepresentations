@@ -178,19 +178,25 @@ class RecurrentSpaceNet(ContextSpaceNet):
     def loss_fn(self, x, ys, hidden_state=None, **kwargs):
         """Loss function
 
-        Args:
-            inputs: Torch tensor of shape (batch size, 3). The function assumes
-            that the first two components are spatial coordinates, while
+        Parameters
+        ----------
+        x: Torch tensor of shape (batch size, timesteps, 3) or (batch size, timesteps, 2).
+            The function assumes that the first two components are spatial coordinates, while
             the last is a context coordinate.
 
-            ys:  A tuple of tensors. Each tensor represents a different dimension (space, context, etc.)
+        ys:  A tuple of tensors or a single tensor of shape (batch size, timesteps, x).
+            Each tensor represents a different dimension (space, context, etc.)
 
-            hidden_state: The hidden state of the RNN. If None, the initial state
-            will be computed using the initial state network.
+        hidden_state: The hidden state of the RNN. If None, the initial state
+        will be computed using the initial state network.
 
-        Returns:
-            loss (1D tensor)
+        Returns
+        -------
+        loss: 1D tensor
         """
+        if not isinstance(ys, tuple):
+            ys = (ys,)
+
         # Get output of the model, which is the correlations (corr)
         # and the spatial representation (p), and the new hidden state
         corr, p, new_hidden_state = self.forward(x, hidden_state=hidden_state)
@@ -257,6 +263,18 @@ class RecurrentSpaceNet(ContextSpaceNet):
         return initial_state
 
     def forward(self, inputs, hidden_state=None):
+        """Forward pass of the model.
+
+        Parameters
+        ----------
+        inputs: torch tensor of shape (batch size, time steps, 3) or (batch size, time steps, 2).
+            The function assumes that the first two components are spatial coordinates, while
+            the last is a context coordinate.
+
+
+
+
+        """
 
         # Check if we have a hidden state
         if hidden_state is None:
@@ -270,6 +288,10 @@ class RecurrentSpaceNet(ContextSpaceNet):
                 initial_state = self.initial_state(inputs.shape[0])
 
         else:
+
+            # In this case, we ignore the initial input, and use the hidden state instead
+            if isinstance(inputs, tuple):
+                inputs = inputs[0]
 
             # Use given initial state
             initial_state = hidden_state
