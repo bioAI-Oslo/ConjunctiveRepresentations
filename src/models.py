@@ -224,12 +224,13 @@ class RecurrentSpaceNet(ContextSpaceNet):
         Parameters
         ----------
         z: torch tensor
-            E.g. coordinates or context vector, of shape (batch size, time steps, 2).
+            E.g. coordinates or context vector, of shape (batch size, time steps, n). Where n is 2 in the case
+            of coordinates.
         """
             
         if self.corr_across_space:
             # Flatten time-location dimension
-            zz = torch.reshape(z, (-1, z.shape[-1]))  # bs*ts, 2
+            zz = torch.reshape(z, (-1, z.shape[-1]))  # bs*ts, n
             dz = torch.nn.functional.pdist(zz)**2
         else:
             dz = torch.cdist(z, z)**2
@@ -343,6 +344,25 @@ class Decoder(torch.nn.Module):
        
     def loss_fn(self, x, y):
         return self.mse(self(x), y)
+
+
+class End2EndSpaceNet(OldSpaceNet):
+    """
+    End-to-end SpaceNet model that includes a decoder.
+    """
+
+    def __init__(self, n_in, n_out, **kwargs):
+        super(End2EndSpaceNet, self).__init__(n_in, n_out, **kwargs)
+        self.decoder = Decoder(n_out, n_in)
+        self.mse = torch.nn.MSELoss()
+        self.to(self.device)
+
+    def loss_fn(self, x, y):
+        return self.mse(self(x), y)
+
+    def forward(self, inputs, **kwargs):
+        p = self.spatial_representation(inputs)
+        return self.decoder(p)
 
 
 class End2End(RecurrentSpaceNet):

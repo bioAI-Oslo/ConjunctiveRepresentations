@@ -2,6 +2,7 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 
+
 class SimpleDatasetMaker(object):
     # Simple test dataset maker; square box + bounce off walls
 
@@ -32,6 +33,7 @@ class SimpleDatasetMaker(object):
         v = np.diff(r, axis = 1)
         return torch.tensor(r.astype('float32'), device = device), torch.tensor(v.astype('float32'), device = device)
 
+
 def weighted_kde(mu, w, bw = 1):
     # x.shape = N, 2
     # mu.shape = M, 2
@@ -44,7 +46,7 @@ def weighted_kde(mu, w, bw = 1):
     return kernel
 
 
-def ratemap_collage(ratemaps, cols = 5 ,figsize = (5,5), **kwargs):
+def ratemap_collage(ratemaps, cols=5, figsize=(5, 5), cmap="viridis", vmin=None, vmax=None, **kwargs):
     """ plot collage of ratemaps
 
     Args:
@@ -52,13 +54,15 @@ def ratemap_collage(ratemaps, cols = 5 ,figsize = (5,5), **kwargs):
             Should contain N ratemaps, each of shape (bins, bins)
         cols (int, optional): Number of units in each row. Defaults to 5.
         figsize (tuple, optional): Size of figure. Defaults to (5,5).
+        cmap (str, optional): Matplotlib colormap. Defaults to "viridis".
+
     """
     ratio = len(ratemaps) // cols 
     rows = ratio if ((len(ratemaps) % cols) == 0) else ratio + 1
-    fig, axs = plt.subplots(cols, rows, figsize = figsize, **kwargs)
+    fig, axs = plt.subplots(cols, rows, figsize=figsize, **kwargs)
 
     for i in range(len(ratemaps)):
-        axs[i//cols, i%cols].imshow(ratemaps[i].T, origin = "lower", interpolation = None)
-        axs[i//cols, i%cols].axis("off")
+        axs[i // cols, i % cols].imshow(ratemaps[i].T, origin="lower", interpolation=None, cmap=cmap, vmin=vmin, vmax=vmax)
+        axs[i // cols, i % cols].axis("off")
     
     return fig, axs

@@ -9,7 +9,8 @@ font.size : 18
 
 # Adapted from https://gist.github.com/huyng/816622
 #axes.facecolor     : eeeeee   # axes background color
-#axes.edgecolor      : bcbcbc   # axes edge color
+# axes.edgecolor      : bcbcbc   # axes edge color
+axes.edgecolor      : black   # axes edge color
 #axes.linewidth      : 5        # edge linewidth
 axes.titlepad        : 5
 
