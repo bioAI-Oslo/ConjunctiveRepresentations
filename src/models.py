@@ -1,6 +1,7 @@
 from abc import abstractmethod
 import torch
 import torch.nn as nn
+import pickle
 
 
 class SpaceNetTemplate(nn.Module):
@@ -36,6 +37,13 @@ class SpaceNetTemplate(nn.Module):
         label_corr = self.correlation_function(y)
         loss = torch.mean((corr - label_corr) ** 2)
         return loss + self.lam*torch.mean(p**2)
+    
+    def save(self, path):
+        with open(path, "wb") as f:
+            pickle.dump(self, f)
+
+    def load(self, path):
+        return pickle.loads(open(path, "rb").read())
 
 
 class OldSpaceNet(SpaceNetTemplate):
