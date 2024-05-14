@@ -66,3 +66,34 @@ def ratemap_collage(ratemaps, cols=5, figsize=(5, 5), cmap="viridis", vmin=None,
         axs[i // cols, i % cols].axis("off")
     
     return fig, axs
+
+def spatial_correlation(a, b):
+    """    
+        Compute spatial correlation (Leutgeb et al. 2005)
+
+        Takes in arrays of ratemaps of shape (n_cells, binx, biny)
+        returns distribution of Pearson correlations
+    """    
+    a_flat = a.reshape(a.shape[0], -1)
+    b_flat = b.reshape(b.shape[0], -1)
+
+    sum_a = np.sum(a_flat, axis = -1) 
+    sum_b = np.sum(b_flat, axis = -1)
+    mask = np.logical_and(sum_a > 0, sum_b > 0) # only include units with nonzero response
+    
+    a_flat = a_flat[mask]
+    b_flat = b_flat[mask]
+
+    corr = np.zeros(a_flat.shape[0])
+    for i in range(a_flat.shape[0]):
+        corr[i] = np.corrcoef(a_flat[i], b_flat[i])[0,1]
+    return corr
+
+def shuffle_inds(n):
+    # Sample non-self indices. Used to create e.g. spatial correlation baseline 
+    inds = []
+    for i in range(n):
+        possible = np.arange(n)
+        possible = possible[possible != i]
+        inds.append(np.random.choice(possible, replace=False))
+    return inds

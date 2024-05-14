@@ -12,10 +12,11 @@ class SpaceNetTemplate(nn.Module):
         * this could be an abstract class
     """
 
-    def __init__(self, scale=0.25, lam = 1, device='cpu', **kwargs):
+    def __init__(self, scale=0.25, lam = 0.1, beta = 0.5, device='cpu', **kwargs):
         super().__init__()
         self.scale = scale
         self.lam = lam
+        self.beta = beta
         self.device = device
 
     @abstractmethod
@@ -35,6 +36,7 @@ class SpaceNetTemplate(nn.Module):
         # x = inputs to model, y = labels
         corr, p = self(x)
         label_corr = self.correlation_function(y)
+        label_corr = label_corr*(1 - self.beta) + self.beta # normalize to [beta, 1] 
         loss = torch.mean((corr - label_corr) ** 2)
         return loss + self.lam*torch.mean(p**2)
     
@@ -99,6 +101,7 @@ class ContextSpaceNet(OldSpaceNet):
         for y in ys:
             labels *= self.correlation_function(y)
 
+        labels = labels*(1 - self.beta) + self.beta # normalize to [beta, 1] 
         # Compute loss between the correlations and the labels
         loss = torch.mean((corr - labels) ** 2)
 
@@ -214,6 +217,7 @@ class RecurrentSpaceNet(ContextSpaceNet):
         labels = torch.ones_like(corr)
         for y in ys:
             labels *= self.correlation_function(y)
+        labels = labels*(1 - self.beta) + self.beta # normalize to [beta, 1] 
 
         # Compute loss between the correlations and the labels
         loss = torch.mean((corr - labels) ** 2)
