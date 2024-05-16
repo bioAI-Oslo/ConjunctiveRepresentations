@@ -36,7 +36,7 @@ class SpaceNetTemplate(nn.Module):
         # x = inputs to model, y = labels
         corr, p = self(x)
         label_corr = self.correlation_function(y)
-        label_corr = label_corr*(1 - self.beta) + self.beta # normalize to [beta, 1] 
+        label_corr = label_corr*(1 - self.beta) + self.beta # normalize to [beta, 1]
         loss = torch.mean((corr - label_corr) ** 2)
         return loss + self.lam*torch.mean(p**2)
     
