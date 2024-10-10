@@ -71,7 +71,7 @@ def get_ratemaps(model, bins=32, timesteps=10, n_traj=50000, context=None, conte
     ratemaps : np.ndarray
         Ratemaps of shape (n_out, bins, bins).
     """
-    from src.models import RecurrentSpaceNet, ContextSpaceNet, SpaceNet
+    from src.models import RecurrentSpaceNet, SpaceNet
 
     if isinstance(model, RecurrentSpaceNet):
 
@@ -105,7 +105,7 @@ def get_ratemaps(model, bins=32, timesteps=10, n_traj=50000, context=None, conte
         rs = r[:, 1:].detach().numpy().reshape(-1, 2)
         ratemap, _, _, _ = stats.binned_statistic_2d(rs[:, 0], rs[:, 1], ps.T, bins=bins)
 
-    elif isinstance(model, (ContextSpaceNet, SpaceNet)):
+    elif isinstance(model, SpaceNet):
 
         x = np.linspace(-1, 1, bins)
         y = np.linspace(-1, 1, bins)
