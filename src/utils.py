@@ -1,12 +1,15 @@
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
+from scipy import stats
 
 
 class SimpleDatasetMaker(object):
-    # Simple test dataset maker; square box + bounce off walls
+    """
+    Simple test dataset maker; square box + bounce off walls
+    """
 
-    def __init__(self, chamber_size = 1, stddev = 4*np.pi, rayleigh_scale = 0.025):
+    def __init__(self, chamber_size=1, stddev=4*np.pi, rayleigh_scale=0.025):
         self.chamber_size = chamber_size
         self.stddev = stddev
         self.rayleigh_scale = rayleigh_scale
@@ -21,14 +24,14 @@ class SimpleDatasetMaker(object):
 
         s = np.random.rayleigh(self.rayleigh_scale, (samples, timesteps))
         prev_hd = np.random.uniform(0, 2*np.pi, samples)
-        r[:,0] = np.random.uniform(-self.chamber_size, self.chamber_size, (samples, 2)) 
+        r[:, 0] = np.random.uniform(-self.chamber_size, self.chamber_size, (samples, 2))
 
         for i in range(timesteps - 1):
             hd = np.random.vonmises(prev_hd, self.stddev, samples)
-            prop_v = s[:,i,None]*np.stack((np.cos(hd), np.sin(hd)),axis=-1)
-            v = self.bounce(r[:,i], prop_v) 
+            prop_v = s[:, i, None] * np.stack((np.cos(hd), np.sin(hd)), axis=-1)
+            v = self.bounce(r[:, i], prop_v)
             prev_hd = np.arctan2(v[:,1], v[:,0])
-            r[:,i+1] = r[:,i] + v # dt = 1
+            r[:, i+1] = r[:, i] + v # dt = 1
 
         v = np.diff(r, axis = 1)
         return torch.tensor(r.astype('float32'), device = device), torch.tensor(v.astype('float32'), device = device)
@@ -44,6 +47,82 @@ def weighted_kde(mu, w, bw = 1):
         d = np.sum((mu[None] - x[:,None])**2,axis=-1)
         return np.sum(w*np.exp(-0.5/bw**2*d), axis = 1)
     return kernel
+
+
+def get_ratemaps(model, bins=32, timesteps=10, n_traj=50000, context=None, context_in_initial=False):
+    """
+    Get ratemaps for a rnn (context) or ff (context) model.
+
+    Parameters
+    ----------
+    model : torch.nn.Module
+        Model to get ratemaps for.
+    bins : int
+        Number of bins for the ratemaps.
+    timesteps : int
+        Number of timesteps in the trajectories.
+    n_traj : int
+        Number of trajectories to generate.
+    context : float
+        Context value to use. If None, the context is not used.
+
+    Returns
+    -------
+    ratemaps : np.ndarray
+        Ratemaps of shape (n_out, bins, bins).
+    """
+    from src.models import RecurrentSpaceNet, ContextSpaceNet, SpaceNet
+
+    if isinstance(model, RecurrentSpaceNet):
+
+        # Generate dataset
+        genny = SimpleDatasetMaker()
+        r, v = genny.generate_dataset(n_traj, timesteps)
+
+        if context is not None:
+
+            # Create input with context
+            c = torch.ones(n_traj, timesteps - 1, 1) * context
+            input = torch.cat((v, c), dim=-1)
+
+            # Add context to initial input
+            if context_in_initial:
+                initial_input = torch.cat((r[:, 0], c[:, 0]), dim=-1)
+            else:
+                initial_input = r[:, 0]
+
+            # Get spatial representation
+            p, _ = model.spatial_representation(input, model.p0(initial_input)[None])
+
+        else:
+
+            # Get spatial representation without context
+            p, _ = model.spatial_representation(v, model.p0(r[:, 0])[None])
+
+        p = p.detach().numpy()
+        ps = p.reshape(-1, p.shape[-1])
+
+        rs = r[:, 1:].detach().numpy().reshape(-1, 2)
+        ratemap, _, _, _ = stats.binned_statistic_2d(rs[:, 0], rs[:, 1], ps.T, bins=bins)
+
+    elif isinstance(model, (ContextSpaceNet, SpaceNet)):
+
+        x = np.linspace(-1, 1, bins)
+        y = np.linspace(-1, 1, bins)
+        xx, yy = np.meshgrid(x, y)
+
+        if context is not None:
+            u = torch.tensor(np.stack([xx.ravel(), yy.ravel(), np.ones_like(xx.ravel()) * context], axis=-1), dtype=torch.float32)
+        else:
+            u = torch.tensor(np.stack([xx.ravel(), yy.ravel()], axis=-1), dtype=torch.float32)
+
+        p = model.spatial_representation(u).detach().numpy().T
+        ratemap = p.reshape(-1, bins, bins)
+
+    else:
+        raise ValueError("Model type not recognized.")
+
+    return ratemap
 
 
 def ratemap_collage(ratemaps, cols=5, figsize=(5, 5), cmap="viridis", vmin=None, vmax=None, **kwargs):
@@ -67,12 +146,13 @@ def ratemap_collage(ratemaps, cols=5, figsize=(5, 5), cmap="viridis", vmin=None,
     
     return fig, axs
 
+
 def spatial_correlation(a, b):
     """    
-        Compute spatial correlation (Leutgeb et al. 2005)
+    Compute spatial correlation (Leutgeb et al. 2005)
 
-        Takes in arrays of ratemaps of shape (n_cells, binx, biny)
-        returns distribution of Pearson correlations
+    Takes in arrays of ratemaps of shape (n_cells, binx, biny)
+    returns distribution of Pearson correlations
     """    
     a_flat = a.reshape(a.shape[0], -1)
     b_flat = b.reshape(b.shape[0], -1)
@@ -88,6 +168,7 @@ def spatial_correlation(a, b):
     for i in range(a_flat.shape[0]):
         corr[i] = np.corrcoef(a_flat[i], b_flat[i])[0,1]
     return corr
+
 
 def shuffle_inds(n):
     # Sample non-self indices. Used to create e.g. spatial correlation baseline 
