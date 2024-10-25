@@ -108,7 +108,7 @@ def get_ratemaps(model, bins=32, timesteps=10, n_traj=50000, context=None, conte
     elif isinstance(model, SpaceNet):
 
         x = np.linspace(-1, 1, bins)
-        y = np.linspace(-1, 1, bins)
+        y = x.copy()
         xx, yy = np.meshgrid(x, y)
 
         if context is not None:

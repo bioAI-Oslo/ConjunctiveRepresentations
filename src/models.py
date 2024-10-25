@@ -345,6 +345,41 @@ class RecurrentSpaceNet(SpaceNetTemplate):
         return loss.item()
 
 
+class LinearDecoder(torch.nn.Module):
+    """
+    Linear decoder network for SpaceNet models that decodes the spatial representation into Cartesian coordinates.
+    """
+
+    def __init__(self, n_in, n_out=2, **kwargs):
+        """ Dense linear network decoder
+
+        Parameters
+        ----------
+        n_in: int
+            Number of inputs features.
+        n_out: int
+            Number of output features. Defaults to 2 (Cartesian coordinates).
+        """
+        super(LinearDecoder, self).__init__(**kwargs)
+        self.decoder = torch.nn.Sequential(
+            torch.nn.Linear(n_in, n_out),
+        )
+        self.mse = torch.nn.MSELoss()
+
+    def forward(self, x):
+        return self.decoder(x)
+
+    def loss_fn(self, x, y):
+        return self.mse(self(x), y)
+
+    def train_step(self, x, y, optimizer):
+        optimizer.zero_grad()
+        loss = self.loss_fn(x, y)
+        loss.backward()
+        optimizer.step()
+        return loss.item()
+
+
 class Decoder(torch.nn.Module):
     """
     Decoder network for SpaceNet models that decodes the spatial representation into Cartesian coordinates.
