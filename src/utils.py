@@ -49,7 +49,7 @@ def weighted_kde(mu, w, bw = 1):
     return kernel
 
 
-def get_ratemaps(model, bins=32, timesteps=10, n_traj=50000, context=None, context_in_initial=False):
+def get_ratemaps(model, bins=32, timesteps=10, n_traj=50000, context=None, intialization="position", dataset_kwargs={}):
     """
     Get ratemaps for a rnn (context) or ff (context) model.
 
@@ -65,6 +65,9 @@ def get_ratemaps(model, bins=32, timesteps=10, n_traj=50000, context=None, conte
         Number of trajectories to generate.
     context : float
         Context value to use. If None, the context is not used.
+    intialization : str
+        Initialization method for the initial state. If "constant", the initial state is a constant vector.
+        Or use "position" or "position_and_context".
 
     Returns
     -------
@@ -76,7 +79,7 @@ def get_ratemaps(model, bins=32, timesteps=10, n_traj=50000, context=None, conte
     if isinstance(model, RecurrentSpaceNet):
 
         # Generate dataset
-        genny = SimpleDatasetMaker()
+        genny = SimpleDatasetMaker(**dataset_kwargs)
         r, v = genny.generate_dataset(n_traj, timesteps)
 
         if context is not None:
@@ -86,18 +89,28 @@ def get_ratemaps(model, bins=32, timesteps=10, n_traj=50000, context=None, conte
             input = torch.cat((v, c), dim=-1)
 
             # Add context to initial input
-            if context_in_initial:
+            if intialization == "position_and_context":
                 initial_input = torch.cat((r[:, 0], c[:, 0]), dim=-1)
-            else:
+            elif intialization == "position":
                 initial_input = r[:, 0]
+            elif intialization == "constant":
+                initial_input = r[:, 0].shape[0]
+            else:
+                initial_input = None
+
+            # Get initial state
+            initial_state = model.initial_state(initial_input) if initial_input is not None else None
 
             # Get spatial representation
-            p, _ = model.spatial_representation(input, model.p0(initial_input)[None])
+            p, _ = model.spatial_representation(input, initial_state)
 
         else:
 
+            # Get initial state
+            initial_state = model.initial_state(r[:, 0] if intialization != "constant" else r[:, 0].shape[0])
+
             # Get spatial representation without context
-            p, _ = model.spatial_representation(v, model.p0(r[:, 0])[None])
+            p, _ = model.spatial_representation(v, initial_state)
 
         p = p.detach().numpy()
         ps = p.reshape(-1, p.shape[-1])
