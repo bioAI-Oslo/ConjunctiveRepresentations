@@ -76,7 +76,7 @@ def get_ratemaps(model, bins=32, timesteps=10, n_traj=50000, context=None, intia
     """
     from src.models import RecurrentSpaceNet, SpaceNet
 
-    if isinstance(model, RecurrentSpaceNet):
+    if isinstance(model, (RecurrentSpaceNet, torch._dynamo.eval_frame.OptimizedModule)):
 
         # Generate dataset
         genny = SimpleDatasetMaker(**dataset_kwargs)
